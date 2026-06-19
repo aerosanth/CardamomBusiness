@@ -35,13 +35,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_resource
 def load_database():
     """Load data from SQLite database"""
     db_name = 'cardamom_data.db'
     
     if not os.path.exists(db_name):
-        st.error(f"Database '{db_name}' not found. Please run scraper.py first.")
         return None
     
     try:
@@ -59,6 +57,16 @@ def load_database():
     except Exception as e:
         st.error(f"Error loading database: {e}")
         return None
+
+
+def initialize_database_in_app():
+    """Bootstrap database in Streamlit runtime when DB file is missing."""
+    try:
+        from scraper import main_scrape_auto
+        return main_scrape_auto()
+    except Exception as e:
+        st.error(f"Failed to initialize data: {e}")
+        return False
 
 def create_interactive_chart(df, show_maxprice, show_avgprice, show_quantity, show_markers):
     """
@@ -177,8 +185,18 @@ def main():
     df = load_database()
     
     if df is None or len(df) == 0:
-        st.error("No data available. Please ensure the database is populated.")
-        st.info("To populate the database, run: `python scraper.py` in the project directory")
+        st.warning("No database/data found yet.")
+        st.info("Click the button below to fetch latest data from the source website and initialize the dashboard.")
+
+        if st.button("Initialize Data Now", type="primary"):
+            with st.spinner("Fetching data and creating database..."):
+                ok = initialize_database_in_app()
+
+            if ok:
+                st.success("Data initialized successfully. Reloading dashboard...")
+                st.rerun()
+            else:
+                st.error("Could not initialize data from source website. Please try again after a minute.")
         return
     
     # Sidebar controls

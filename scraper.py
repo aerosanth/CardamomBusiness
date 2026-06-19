@@ -50,6 +50,22 @@ def get_last_scraped_date():
     except:
         return None
 
+
+def has_existing_data():
+    """Return True when database exists and contains at least one row."""
+    if not os.path.exists(DB_NAME):
+        return False
+
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM cardamom_prices')
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count > 0
+    except Exception:
+        return False
+
 def scrape_page(page_num=1):
     """
     Scrape a single page from the website
@@ -322,6 +338,16 @@ def main_scrape_incremental():
     
     return True
 
+
+def main_scrape_auto():
+    """Auto mode: full historical scrape on first run, incremental afterward."""
+    if has_existing_data():
+        print("Auto mode selected: existing DB found -> running incremental update")
+        return main_scrape_incremental()
+
+    print("Auto mode selected: DB absent/empty -> running initial full historical scrape")
+    return main_scrape_initial()
+
 if __name__ == "__main__":
-    # For testing: run incremental scrape
-    main_scrape_incremental()
+    # Auto mode for CI/CD and manual runs.
+    main_scrape_auto()
