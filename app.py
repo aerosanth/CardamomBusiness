@@ -62,10 +62,14 @@ def load_database():
 def initialize_database_in_app():
     """Bootstrap database in Streamlit runtime when DB file is missing."""
     try:
+        print("[APP] Initialization requested from UI. Starting scraper auto mode...", flush=True)
         from scraper import main_scrape_auto
-        return main_scrape_auto()
+        ok = main_scrape_auto()
+        print(f"[APP] Initialization completed. Success={ok}", flush=True)
+        return ok
     except Exception as e:
         st.error(f"Failed to initialize data: {e}")
+        print(f"[APP] Initialization failed: {e}", flush=True)
         return False
 
 def create_interactive_chart(df, show_maxprice, show_avgprice, show_quantity, show_markers):

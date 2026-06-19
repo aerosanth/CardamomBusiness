@@ -11,9 +11,19 @@ import sqlite3
 from datetime import datetime
 import time
 import os
+import urllib3
+from io import StringIO
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Database configuration
 DB_NAME = 'cardamom_data.db'
+
+
+def log(message, level="INFO"):
+    """Timestamped logger with flush so messages appear in hosted logs immediately."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] [{level}] {message}", flush=True)
 
 def create_database():
     """Create SQLite database with proper schema if it doesn't exist"""
@@ -36,7 +46,7 @@ def create_database():
     
     conn.commit()
     conn.close()
-    print(f"✓ Database '{DB_NAME}' initialized")
+    log(f"Database '{DB_NAME}' initialized")
 
 def get_last_scraped_date():
     """Get the last date that was scraped"""
@@ -83,42 +93,52 @@ def scrape_page(page_num=1):
     }
     
     try:
-        print(f"Scraping page {page_num}...")
-        response = requests.get(url, headers=headers, timeout=10)
+        log(f"Scraping page {page_num}...")
+        response = requests.get(url, headers=headers, timeout=20, verify=False)
         response.raise_for_status()
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Find the table
-        table = soup.find('table', {'class': 'table'})
-        
-        if not table:
-            print(f"No table found on page {page_num}")
+
+        # Primary parser: robust extraction from HTML tables.
+        tables = pd.read_html(StringIO(response.text))
+        if not tables:
+            log(f"No table found on page {page_num}", "WARN")
             return None
-        
-        # Extract headers
-        headers = []
-        for th in table.find_all('th'):
-            headers.append(th.get_text(strip=True))
-        
-        # Extract rows
-        rows = []
-        for tr in table.find_all('tr')[1:]:  # Skip header row
-            cols = tr.find_all('td')
-            if cols:
-                row = [col.get_text(strip=True) for col in cols]
-                rows.append(row)
-        
-        if rows:
-            df = pd.DataFrame(rows, columns=headers)
-            print(f"✓ Scraped {len(rows)} records from page {page_num}")
+
+        df = None
+        expected_cols = [
+            'Date of Auction', 'Auctioneer', 'No.of Lots',
+            'Total Qty Arrived (Kgs)', 'Qty Sold (Kgs)',
+            'MaxPrice (Rs./Kg)', 'Avg.Price (Rs./Kg)'
+        ]
+
+        # Find the actual data table (page also contains search/form table).
+        for t in tables:
+            first_row = t.iloc[0].astype(str).tolist() if len(t) > 0 else []
+            if any('Date of Auction' in v for v in first_row):
+                t.columns = t.iloc[0]
+                t = t.iloc[1:].reset_index(drop=True)
+                df = t
+                break
+
+        if df is None:
+            log(f"No auction data table found on page {page_num}", "WARN")
+            return None
+
+        if 'Sno' in df.columns:
+            df = df.drop(columns=['Sno'])
+
+        available_cols = [c for c in expected_cols if c in df.columns]
+        if available_cols:
+            df = df[available_cols]
+
+        if len(df) > 0:
+            log(f"Scraped {len(df)} records from page {page_num}")
             return df
-        else:
-            print(f"No data rows found on page {page_num}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        print(f"✗ Error scraping page {page_num}: {e}")
+
+        log(f"No data rows found on page {page_num}", "WARN")
+        return None
+
+    except (requests.exceptions.RequestException, ValueError) as e:
+        log(f"Error scraping page {page_num}: {e}", "ERROR")
         return None
 
 def scrape_all_pages(max_pages=None):
@@ -141,10 +161,12 @@ def scrape_all_pages(max_pages=None):
         df = scrape_page(page)
         
         if df is None or len(df) == 0:
-            print(f"Reached end of pages at page {page}")
+            log(f"Reached end of pages at page {page}")
             break
         
         all_data.append(df)
+        running_total = sum(len(x) for x in all_data)
+        log(f"Progress: page {page} collected, running rows={running_total}")
         
         # Be respectful to the website
         time.sleep(2)
@@ -227,13 +249,13 @@ def save_to_database(df):
         new_count = cursor.fetchone()[0]
         inserted = new_count - existing_count
         
-        print(f"✓ Inserted {inserted} new records to database")
-        print(f"  Total records in database: {new_count}")
+        log(f"Inserted {inserted} new records to database")
+        log(f"Total records in database: {new_count}")
         
         return inserted
         
     except Exception as e:
-        print(f"✗ Error saving to database: {e}")
+        log(f"Error saving to database: {e}", "ERROR")
         conn.rollback()
         return 0
     finally:
@@ -257,7 +279,7 @@ def load_from_database():
         
         return df
     except Exception as e:
-        print(f"✗ Error loading from database: {e}")
+        log(f"Error loading from database: {e}", "ERROR")
         return None
 
 def main_scrape_initial():
@@ -265,34 +287,34 @@ def main_scrape_initial():
     Initial full scrape - gets all historical data
     Run this once to populate the database
     """
-    print("=" * 80)
-    print("CARDAMOM PRICE SCRAPER - INITIAL FULL SCRAPE")
-    print("=" * 80)
+    log("=" * 80)
+    log("CARDAMOM PRICE SCRAPER - INITIAL FULL SCRAPE")
+    log("=" * 80)
     
     create_database()
     
     # Scrape all pages
-    print("\nScraping all pages from website...")
+    log("Scraping all pages from website...")
     raw_data = scrape_all_pages(max_pages=None)
     
     if raw_data is None or len(raw_data) == 0:
-        print("✗ No data scraped")
+        log("No data scraped", "ERROR")
         return False
     
-    print(f"\n✓ Total records scraped: {len(raw_data)}")
+    log(f"Total records scraped: {len(raw_data)}")
     
     # Clean data
-    print("\nCleaning data...")
+    log("Cleaning data...")
     cleaned_data = clean_data(raw_data)
-    print(f"✓ Cleaned data: {len(cleaned_data)} records")
+    log(f"Cleaned data: {len(cleaned_data)} records")
     
     # Save to database
-    print("\nSaving to database...")
-    inserted = save_to_database(cleaned_data)
+    log("Saving to database...")
+    save_to_database(cleaned_data)
     
-    print("\n" + "=" * 80)
-    print("INITIAL SCRAPE COMPLETE")
-    print("=" * 80)
+    log("=" * 80)
+    log("INITIAL SCRAPE COMPLETE")
+    log("=" * 80)
     
     return True
 
@@ -301,40 +323,40 @@ def main_scrape_incremental():
     Incremental scrape - only gets new dates since last scrape
     Run this daily via GitHub Actions
     """
-    print("=" * 80)
-    print("CARDAMOM PRICE SCRAPER - INCREMENTAL UPDATE")
-    print("=" * 80)
+    log("=" * 80)
+    log("CARDAMOM PRICE SCRAPER - INCREMENTAL UPDATE")
+    log("=" * 80)
     
     create_database()
     
     last_date = get_last_scraped_date()
-    print(f"\nLast scraped date: {last_date}")
+    log(f"Last scraped date: {last_date}")
     
     # Scrape first 3 pages (usually contains recent data)
-    print("\nScraping recent pages from website...")
+    log("Scraping recent pages from website...")
     raw_data = scrape_all_pages(max_pages=3)
     
     if raw_data is None or len(raw_data) == 0:
-        print("✗ No new data scraped")
+        log("No new data scraped", "ERROR")
         return False
     
-    print(f"\n✓ Total records scraped: {len(raw_data)}")
+    log(f"Total records scraped: {len(raw_data)}")
     
     # Clean data
-    print("\nCleaning data...")
+    log("Cleaning data...")
     cleaned_data = clean_data(raw_data)
-    print(f"✓ Cleaned data: {len(cleaned_data)} records")
+    log(f"Cleaned data: {len(cleaned_data)} records")
     
     # Save to database (only new records will be inserted)
-    print("\nUpdating database with new records...")
+    log("Updating database with new records...")
     inserted = save_to_database(cleaned_data)
     
-    print("\n" + "=" * 80)
+    log("=" * 80)
     if inserted > 0:
-        print(f"INCREMENTAL UPDATE COMPLETE - {inserted} NEW RECORDS ADDED")
+        log(f"INCREMENTAL UPDATE COMPLETE - {inserted} NEW RECORDS ADDED")
     else:
-        print("INCREMENTAL UPDATE COMPLETE - NO NEW RECORDS")
-    print("=" * 80)
+        log("INCREMENTAL UPDATE COMPLETE - NO NEW RECORDS")
+    log("=" * 80)
     
     return True
 
@@ -342,10 +364,10 @@ def main_scrape_incremental():
 def main_scrape_auto():
     """Auto mode: full historical scrape on first run, incremental afterward."""
     if has_existing_data():
-        print("Auto mode selected: existing DB found -> running incremental update")
+        log("Auto mode selected: existing DB found -> running incremental update")
         return main_scrape_incremental()
 
-    print("Auto mode selected: DB absent/empty -> running initial full historical scrape")
+    log("Auto mode selected: DB absent/empty -> running initial full historical scrape")
     return main_scrape_initial()
 
 if __name__ == "__main__":
