@@ -12,12 +12,14 @@ from datetime import datetime
 import time
 import os
 import urllib3
-from io import StringIO
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Database configuration
 DB_NAME = 'cardamom_data.db'
+# Control how many pages to scrape from source.
+# Set to an integer (e.g., 5) for limited pages or 'all' for full history.
+No_Pages_to_collect_data_from_source = 5
 
 
 def log(message, level="INFO"):
@@ -97,27 +99,39 @@ def scrape_page(page_num=1):
         response = requests.get(url, headers=headers, timeout=20, verify=False)
         response.raise_for_status()
 
-        # Primary parser: robust extraction from HTML tables.
-        tables = pd.read_html(StringIO(response.text))
-        if not tables:
-            log(f"No table found on page {page_num}", "WARN")
-            return None
-
-        df = None
+        soup = BeautifulSoup(response.text, 'html.parser')
         expected_cols = [
             'Date of Auction', 'Auctioneer', 'No.of Lots',
             'Total Qty Arrived (Kgs)', 'Qty Sold (Kgs)',
             'MaxPrice (Rs./Kg)', 'Avg.Price (Rs./Kg)'
         ]
 
-        # Find the actual data table (page also contains search/form table).
-        for t in tables:
-            first_row = t.iloc[0].astype(str).tolist() if len(t) > 0 else []
-            if any('Date of Auction' in v for v in first_row):
-                t.columns = t.iloc[0]
-                t = t.iloc[1:].reset_index(drop=True)
-                df = t
-                break
+        df = None
+        # Find the actual auction table (page has multiple tables).
+        for table in soup.find_all('table'):
+            rows = table.find_all('tr')
+            if not rows:
+                continue
+
+            header = None
+            data_rows = []
+            for tr in rows:
+                cells = [c.get_text(' ', strip=True) for c in tr.find_all(['th', 'td'])]
+                if not cells:
+                    continue
+
+                if 'Date of Auction' in cells and 'Auctioneer' in cells:
+                    header = cells
+                    continue
+
+                if header and len(cells) >= len(header):
+                    data_rows.append(cells[:len(header)])
+
+            if header and data_rows:
+                candidate = pd.DataFrame(data_rows, columns=header)
+                if 'Date of Auction' in candidate.columns and 'Auctioneer' in candidate.columns:
+                    df = candidate
+                    break
 
         if df is None:
             log(f"No auction data table found on page {page_num}", "WARN")
@@ -125,6 +139,10 @@ def scrape_page(page_num=1):
 
         if 'Sno' in df.columns:
             df = df.drop(columns=['Sno'])
+
+        # Remove accidental repeated header rows if present inside table body.
+        if 'Date of Auction' in df.columns:
+            df = df[df['Date of Auction'] != 'Date of Auction']
 
         available_cols = [c for c in expected_cols if c in df.columns]
         if available_cols:
@@ -293,9 +311,10 @@ def main_scrape_initial():
     
     create_database()
     
-    # Scrape all pages
-    log("Scraping all pages from website...")
-    raw_data = scrape_all_pages(max_pages=None)
+    # Scrape pages based on configuration.
+    max_pages = None if str(No_Pages_to_collect_data_from_source).lower() == 'all' else int(No_Pages_to_collect_data_from_source)
+    log(f"Scraping pages from website with setting: {No_Pages_to_collect_data_from_source}")
+    raw_data = scrape_all_pages(max_pages=max_pages)
     
     if raw_data is None or len(raw_data) == 0:
         log("No data scraped", "ERROR")
@@ -332,9 +351,10 @@ def main_scrape_incremental():
     last_date = get_last_scraped_date()
     log(f"Last scraped date: {last_date}")
     
-    # Scrape first 3 pages (usually contains recent data)
-    log("Scraping recent pages from website...")
-    raw_data = scrape_all_pages(max_pages=3)
+    # Scrape pages based on configuration.
+    max_pages = None if str(No_Pages_to_collect_data_from_source).lower() == 'all' else int(No_Pages_to_collect_data_from_source)
+    log(f"Scraping pages from website with setting: {No_Pages_to_collect_data_from_source}")
+    raw_data = scrape_all_pages(max_pages=max_pages)
     
     if raw_data is None or len(raw_data) == 0:
         log("No new data scraped", "ERROR")
