@@ -88,11 +88,11 @@ def create_interactive_chart(df, show_maxprice, show_avgprice, show_quantity, sh
             go.Scatter(
                 x=df['date_of_auction'],
                 y=df['max_price'],
-                name='MaxPrice (Rs./Kg)',
+                name='',#MaxPrice (Rs./Kg)
                 mode=marker_mode,
                 line=dict(color='blue', width=2),
                 marker=dict(size=marker_size),
-                hovertemplate='<b>Date:</b> %{x|%Y-%m-%d}<br><b>MaxPrice:</b> %{y:.2f} Rs./Kg<extra></extra>',
+                hovertemplate='<b>MaxPrice:</b> %{y:.2f} ',
             ),
             secondary_y=False,
         )
@@ -103,11 +103,11 @@ def create_interactive_chart(df, show_maxprice, show_avgprice, show_quantity, sh
             go.Scatter(
                 x=df['date_of_auction'],
                 y=df['avg_price'],
-                name='Avg.Price (Rs./Kg)',
+                name='',#Avg.Price (Rs./Kg)
                 mode=marker_mode,
                 line=dict(color='cyan', width=2),
                 marker=dict(size=marker_size),
-                hovertemplate='<b>Date:</b> %{x|%Y-%m-%d}<br><b>Avg Price:</b> %{y:.2f} Rs./Kg<extra></extra>',
+                hovertemplate='<b>Avg Price:</b> %{y:.2f} ',
             ),
             secondary_y=False,
         )
@@ -118,11 +118,11 @@ def create_interactive_chart(df, show_maxprice, show_avgprice, show_quantity, sh
             go.Scatter(
                 x=df['date_of_auction'],
                 y=df['total_qty_arrived'],
-                name='Total Qty Arrived (Kgs)',
+                name='',#Total Qty Arrived (Kgs)
                 mode=marker_mode,
                 line=dict(color='orange', width=2),
                 marker=dict(size=marker_size),
-                hovertemplate='<b>Date:</b> %{x|%Y-%m-%d}<br><b>Total Qty:</b> %{y:,.0f} Kgs<extra></extra>',
+                hovertemplate='<b>Total Qty:</b> %{y:,.0f} ',
             ),
             secondary_y=True,
         )
@@ -182,8 +182,8 @@ def display_statistics(df):
 def main():
     # Header
     st.title("📊 Cardamom Price Dashboard")
-    st.markdown("Interactive dashboard for Indian Cardamom Daily Auction Prices")
-    st.markdown("Data source: [Indian Spices Board](https://www.indianspices.com/marketing/price/domestic/daily-price-small.html)")
+    # st.markdown("Interactive dashboard for Indian Cardamom Daily Auction Prices")
+    # st.markdown("Data source: [Indian Spices Board](https://www.indianspices.com/marketing/price/domestic/daily-price-small.html)")
     
     # Load data
     df = load_database()
@@ -256,7 +256,7 @@ def main():
     
     # Display statistics
     st.markdown("---")
-    st.subheader("📈 Key Metrics")
+    # st.subheader("📈 Key Metrics")
     display_statistics(filtered_df)
     
     # Display chart

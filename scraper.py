@@ -19,7 +19,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 DB_NAME = 'cardamom_data.db'
 # Control how many pages to scrape from source.
 # Set to an integer (e.g., 5) for limited pages or 'all' for full history.
-No_Pages_to_collect_data_from_source = 5
+No_Pages_to_collect_data_from_source = 'all' # 5
 
 
 def log(message, level="INFO"):
